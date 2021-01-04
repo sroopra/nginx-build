@@ -99,9 +99,9 @@ if [ ! -d "/var/cache/nginx/" ]; then
     /var/cache/nginx/scgi_temp
 fi
 
-# Add NGINX group and user if they do not already exist
-id -g nginx &>/dev/null || addgroup --system nginx
-id -u nginx &>/dev/null || adduser --disabled-password --system --home /var/cache/nginx --shell /sbin/nologin --group nginx
+# Add www-data group and user if they do not already exist
+id -g www-data &>/dev/null || addgroup --system www-data
+id -u www-data &>/dev/null || adduser --disabled-password --system --home /var/cache/nginx --shell /sbin/nologin --group www-data
 
 # Test to see if our version of gcc supports __SIZEOF_INT128__
 if gcc -dM -E - </dev/null | grep -q __SIZEOF_INT128__
@@ -133,8 +133,8 @@ cd "$bpath/$version_nginx"
   --http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp \
   --http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp \
   --http-scgi-temp-path=/var/cache/nginx/scgi_temp \
-  --user=nginx \
-  --group=nginx \
+  --user=www-data \
+  --group=www-data \
   --with-file-aio \
   --with-http_auth_request_module \
   --with-http_gunzip_module \
