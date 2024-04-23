@@ -19,6 +19,8 @@ source_openssl=https://www.openssl.org/source/
 source_nginx=https://nginx.org/download/
 
 # Look up latest versions of each package
+version_pcre=$(curl -s ${source_pcre} | \
+  jq -r '.assets[] | select(.name | endswith(".tar.gz")).name | split(".tar.gz")[0]')
 version_zlib=$(curl -sL ${source_zlib} | grep -Eo 'zlib\-[0-9.]+[0-9]' | sort -V | tail -n 1)
 version_openssl=$(curl -sL ${source_openssl} | grep -Po 'openssl\-[0-9]+\.[0-9]+\.[0-9]+[a-z]?(?=\.tar\.gz)' | sort -V | tail -n 1)
 version_nginx=$(curl -sL ${source_nginx} | grep -Eo 'nginx\-[0-9.]+[13579]\.[0-9]+' | sort -V | tail -n 1)
@@ -31,7 +33,7 @@ opgp_openssl_2=B7C1C14360F353A36862E4D5231C84CDDCC69C45 #Paul Dale
 opgp_openssl_3=7953AC1FBC3DC8B3B292393ED5E9E43F7DF9EE8C #Richaard Levitte
 opgp_openssl_4=A21FAB74B0088AA361152586B8EF1A6BA9DA2D5C #Tomas Mrax
 opgp_openssl_5=EFC0A467D613CB83C7ED6D30D894E2CE8B3D79F5 #OpenSSL OMC
-opgp_nginx=13C82A63B603576156E30A4EA0EA981B66B0D967
+opgp_nginx=43387825ddb1bb97ec36ba5d007c8d7c15d87369
 
 # Set where OpenSSL and NGINX will be built
 bpath=$(pwd)/build
