@@ -13,13 +13,13 @@ set -e -x
 apt-get update && apt-get install curl -y
 
 # Set URLs to the source directories
-source_pcre=https://ftp.pcre.org/pub/pcre/
+source_pcre=https://onboardcloud.dl.sourceforge.net/project/pcre/pcre/8.45/
 source_zlib=https://zlib.net/
 source_openssl=https://www.openssl.org/source/
 source_nginx=https://nginx.org/download/
 
 # Look up latest versions of each package
-version_pcre=$(curl -sL ${source_pcre} | grep -Eo 'pcre\-[0-9.]+[0-9]' | sort -V | tail -n 1)
+version_pcre=pcre-8.45
 version_zlib=$(curl -sL ${source_zlib} | grep -Eo 'zlib\-[0-9.]+[0-9]' | sort -V | tail -n 1)
 version_openssl=$(curl -sL ${source_openssl} | grep -Po 'openssl\-[0-9]+\.[0-9]+\.[0-9]+[a-z]?(?=\.tar\.gz)' | sort -V | tail -n 1)
 version_nginx=$(curl -sL ${source_nginx} | grep -Eo 'nginx\-[0-9.]+[13579]\.[0-9]+' | sort -V | tail -n 1)
@@ -27,8 +27,12 @@ version_nginx=$(curl -sL ${source_nginx} | grep -Eo 'nginx\-[0-9.]+[13579]\.[0-9
 # Set OpenPGP keys used to sign downloads
 opgp_pcre=45F68D54BBE23FB3039B46E59766E084FB0F43D8
 opgp_zlib=5ED46A6721D365587791E2AA783FCD8E58BCAFBA
-opgp_openssl=8657ABB260F056B1E5190839D9C4D26D0E604491
-opgp_nginx=B0F4253373F8F6F510D42178520A9993A1C052F8
+opgp_openssl_1=8657ABB260F056B1E5190839D9C4D26D0E604491 #Matt Caswell
+opgp_openssl_2=B7C1C14360F353A36862E4D5231C84CDDCC69C45 #Paul Dale
+opgp_openssl_3=7953AC1FBC3DC8B3B292393ED5E9E43F7DF9EE8C #Richaard Levitte
+opgp_openssl_4=A21FAB74B0088AA361152586B8EF1A6BA9DA2D5C #Tomas Mrax
+opgp_openssl_5=EFC0A467D613CB83C7ED6D30D894E2CE8B3D79F5 #OpenSSL OMC
+opgp_nginx=13C82A63B603576156E30A4EA0EA981B66B0D967
 
 # Set where OpenSSL and NGINX will be built
 bpath=$(pwd)/build
@@ -66,8 +70,7 @@ curl -L "${source_nginx}${version_nginx}.tar.gz.asc" -o "${bpath}/nginx.tar.gz.a
 cd "$bpath"
 GNUPGHOME="$(mktemp -d)"
 export GNUPGHOME
-( gpg --keyserver ipv4.pool.sks-keyservers.net --recv-keys "$opgp_pcre" "$opgp_zlib" "$opgp_openssl" "$opgp_nginx" \
-|| gpg --keyserver ha.pool.sks-keyservers.net --recv-keys "$opgp_pcre" "$opgp_zlib" "$opgp_openssl" "$opgp_nginx")
+gpg --keyserver keyserver.ubuntu.com --recv-keys "$opgp_pcre" "$opgp_zlib" "$opgp_openssl_1" "$opgp_openssl_2" "$opgp_openssl_3" "$opgp_openssl_4" "$opgp_openssl_5" "$opgp_nginx"
 gpg --batch --verify pcre.tar.gz.sig pcre.tar.gz
 gpg --batch --verify zlib.tar.gz.asc zlib.tar.gz
 gpg --batch --verify openssl.tar.gz.asc openssl.tar.gz
