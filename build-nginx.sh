@@ -1,65 +1,67 @@
 #!/usr/bin/env bash
 #
-# Build NGINX from source with statically linked OpenSSL, PCRE2 and zlib.
-# Tuned for a Nextcloud server on a Raspberry Pi (Raspberry Pi OS / Debian),
-# works on any Debian-based system.
+# This script builds nginx from source code for a Nextcloud server.
+# It puts OpenSSL, PCRE2 and zlib into the nginx program file.
+# It works on Raspberry Pi OS and on other Debian-based systems.
 #
-# Usage: sudo ./build-nginx.sh [--build-only] [--check] [--help]
+# Usage: sudo bash build-nginx.sh [--build-only] [--check] [--help]
 #
-# Settings can be overridden with environment variables, e.g.
-#   sudo NGINX_BRANCH=stable OPENSSL_SERIES=3.5 ./build-nginx.sh
-# Run with --help for the full list.
+# To change the configuration, set environment variables. Example:
+#   sudo NGINX_BRANCH=stable bash build-nginx.sh
+# To see all variables, run: bash build-nginx.sh --help
 
 set -Eeuo pipefail
 trap 'echo "ERROR: ${BASH_SOURCE[0]:-$0}:${LINENO}: \"${BASH_COMMAND}\" failed" >&2' ERR
 
 # ---------------------------------------------------------------------------
-# Settings
+# Configuration
 # ---------------------------------------------------------------------------
-# nginx branch: "mainline" (odd minor, nginx's own recommendation, gets fixes
-# first) or "stable" (even minor, only critical fixes).
+# The nginx release line: "mainline" or "stable".
+# Mainline gets all fixes first. The nginx team recommends it.
+# Stable gets only important fixes.
 NGINX_BRANCH=${NGINX_BRANCH:-mainline}
-# OpenSSL series: "3.5" is the LTS release (supported until 2030-04-08).
-# Non-LTS releases (4.0, 4.1, ...) are supported for only ~13 months.
-# Use "latest" for the newest release of any series.
+# The OpenSSL release line. "3.5" has long-term support until 2030-04-08.
+# Other lines (4.0, 4.1) get support for about 13 months only.
+# "latest" selects the newest release of all lines.
 OPENSSL_SERIES=${OPENSSL_SERIES:-3.5}
-# Pin exact versions (optional), e.g. NGINX_VERSION=1.31.9 OPENSSL_VERSION=3.5.9
+# To use one exact version, set it here. Example: NGINX_VERSION=1.31.9
+# If a variable is empty, the script uses the latest version.
 NGINX_VERSION=${NGINX_VERSION:-}
 OPENSSL_VERSION=${OPENSSL_VERSION:-}
 PCRE2_VERSION=${PCRE2_VERSION:-}
 ZLIB_VERSION=${ZLIB_VERSION:-}
-# Optional HTTP/3 (QUIC) support; enabled at runtime only with "listen ... quic".
+# 1 = include HTTP/3 (a newer web protocol). It stays off until you add
+# "listen 443 quic" to the nginx configuration.
 WITH_HTTP3=${WITH_HTTP3:-1}
-# The stream (TCP/UDP proxy) module is not needed for Nextcloud.
+# 1 = include the stream module (a TCP and UDP proxy). Nextcloud does not use it.
 WITH_STREAM=${WITH_STREAM:-0}
-# CPU_TUNE=native adds -mcpu=native (ARM) / -march=native (x86). Small gain,
-# but the binary may crash with SIGILL on an older CPU (e.g. moving an SD card
-# from a Pi 5 to a Pi 4), so it is off by default.
+# "native" = optimize for the CPU of this computer (-mcpu=native or -march=native).
+# The speed gain is small. On an older CPU, the program stops with SIGILL.
+# Example: you move the SD card from a Pi 5 to a Pi 4.
 CPU_TUNE=${CPU_TUNE:-}
-# Extra ./configure arguments, e.g. EXTRA_CONFIGURE_ARGS="--with-http_sub_module"
+# More arguments for ./configure. Example: "--with-http_sub_module"
 EXTRA_CONFIGURE_ARGS=${EXTRA_CONFIGURE_ARGS:-}
-# Parallel jobs; default is limited by free RAM (~400 MB per job) so that
-# low-memory boards (Pi Zero 2 W, 1 GB Pi 3/4) don't run out of memory.
+# The number of parallel compile jobs. If empty, the script allows one job
+# for each 400 MB of free memory. This prevents memory errors on small boards.
 JOBS=${JOBS:-}
 BUILD_DIR=${BUILD_DIR:-$(pwd)/build}
 KEEP_BUILD=${KEEP_BUILD:-0}
 
-# Download locations
+# Download addresses
 url_nginx=https://nginx.org/download
 url_openssl_list=https://openssl-library.org/source/
 url_openssl_dl=https://github.com/openssl/openssl/releases/download
 url_pcre2_api=https://api.github.com/repos/PCRE2Project/pcre2/releases/latest
 url_pcre2_dl=https://github.com/PCRE2Project/pcre2/releases/download
-# zlib.net's front page is behind a bot check; the fossils index is plain HTML.
+# The zlib.net home page blocks scripts. The "fossils" list is plain HTML.
 url_zlib_list=https://zlib.net/fossils/
 url_zlib_dl=https://zlib.net
-# Fallback if zlib.net is unavailable or serves its bot check
+# The script uses GitHub if zlib.net fails.
 url_zlib_api=https://api.github.com/repos/madler/zlib/releases/latest
 url_zlib_gh=https://github.com/madler/zlib/releases/download
 
-# OpenPGP fingerprints of the release signers (full primary-key fingerprints).
-# A signature is only accepted if it was made by one of the keys listed for
-# that particular package.
+# The OpenPGP key fingerprints (unique key IDs) of the people who sign releases.
+# The script accepts a file only if one of the keys for that package signed it.
 # nginx:   https://nginx.org/en/pgp_keys.html
 keys_nginx=(
   D6786CE303D9A9022998DC6CC8464D549AF75C0A # Sergey Kandaurov
@@ -78,9 +80,9 @@ keys_pcre2=(
 keys_zlib=(
   5ED46A6721D365587791E2AA783FCD8E58BCAFBA # Mark Adler
 )
-# Keys are fetched over HTTPS with curl (more reliable than gpg's dirmngr).
-# Where they come from doesn't matter for security: only the pinned
-# fingerprints above are trusted.
+# The script downloads the keys with curl. This works more reliably than
+# the gpg keyserver tool (dirmngr). The source of a key is not important,
+# because the script trusts only the fingerprints above.
 keyservers=(
   'https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x'
   'https://keys.openpgp.org/vks/v1/by-fingerprint/'
@@ -93,7 +95,8 @@ log()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
-# HTTPS only (also on redirects), fail on HTTP errors, retry transient errors.
+# Download with HTTPS only, also after a redirect. Stop on an HTTP error.
+# Try again 3 times if the network fails.
 fetch() {
   curl --fail --silent --show-error --location \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -101,27 +104,30 @@ fetch() {
 }
 
 usage() {
-  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
   cat <<EOF
+Build nginx from source code for a Nextcloud server.
 
-Options:
-  --build-only   Download, verify and compile, but do not install (e.g. to try
-                 a new version first). Without it, the running nginx keeps
-                 serving during the build and is restarted only at the end.
-  --check        Compare the installed nginx/OpenSSL with the latest upstream
-                 versions; exit 1 if a rebuild is due (handy for cron).
-  --help         Show this help.
+Usage: sudo bash build-nginx.sh [--build-only] [--check] [--help]
+
+  (no flag)      Build nginx and install it. Your current nginx continues to
+                 run during the build. The script restarts it at the end.
+  --build-only   Build nginx, but do not install it.
+  --check        Compare the installed nginx and OpenSSL with the latest
+                 versions. Exit code 1 means that a new version is available.
+  --help         Show this text.
 
 Environment variables (current value):
   NGINX_BRANCH=$NGINX_BRANCH   OPENSSL_SERIES=$OPENSSL_SERIES
-  NGINX_VERSION OPENSSL_VERSION PCRE2_VERSION ZLIB_VERSION  (pin versions)
+  NGINX_VERSION OPENSSL_VERSION PCRE2_VERSION ZLIB_VERSION  (exact versions)
   WITH_HTTP3=$WITH_HTTP3   WITH_STREAM=$WITH_STREAM   CPU_TUNE=${CPU_TUNE:-<off>}
   EXTRA_CONFIGURE_ARGS  JOBS  BUILD_DIR=$BUILD_DIR  KEEP_BUILD=$KEEP_BUILD
+
+The README explains each variable.
 EOF
 }
 
 # ---------------------------------------------------------------------------
-# Version lookup
+# Find the latest versions
 # ---------------------------------------------------------------------------
 latest_nginx() {
   local parity
@@ -175,7 +181,7 @@ resolve_versions() {
   local v
   for v in NGINX_VERSION OPENSSL_VERSION PCRE2_VERSION ZLIB_VERSION; do
     [[ ${!v} =~ ^[0-9]+(\.[0-9]+)+$ ]] \
-      || die "could not determine $v (got '${!v}'); set it manually, e.g. $v=x.y.z"
+      || die "Cannot find the latest $v (result: '${!v}'). Set it yourself. Example: $v=x.y.z"
   done
   printf '  %-8s %s\n' nginx "$NGINX_VERSION ($NGINX_BRANCH)" \
     OpenSSL "$OPENSSL_VERSION (series: $OPENSSL_SERIES)" \
@@ -183,7 +189,7 @@ resolve_versions() {
 }
 
 # ---------------------------------------------------------------------------
-# --check: is a rebuild due?
+# --check: compare the installed versions with the latest versions
 # ---------------------------------------------------------------------------
 check_versions() {
   command -v nginx >/dev/null || die "nginx is not installed"
@@ -198,13 +204,13 @@ check_versions() {
   [[ $cur_nginx == "$NGINX_VERSION" ]] || outdated=1
   [[ $cur_openssl == "$OPENSSL_VERSION" ]] || outdated=1
   if (( outdated )); then
-    echo "  -> rebuild recommended"; exit 1
+    echo "  Result: a new version is available. Run the script to update nginx."; exit 1
   fi
-  echo "  -> up to date"
+  echo "  Result: nginx is up to date."
 }
 
 # ---------------------------------------------------------------------------
-# Download and verify
+# Download the source code and make sure that the signatures are correct
 # ---------------------------------------------------------------------------
 import_keys() {
   local ks fpr
@@ -213,20 +219,21 @@ import_keys() {
       fetch "$ks$fpr" 2>/dev/null | gpg --batch --quiet --import 2>/dev/null || true
       gpg --batch --list-keys "$fpr" &>/dev/null && continue 2
     done
-    die "could not fetch OpenPGP key $fpr from any keyserver"
+    die "Cannot download the OpenPGP key $fpr from a keyserver."
   done
 }
 
 # verify <signature> <file> <allowed fingerprint>...
-# Accept the file only if the signature is good AND was made by one of the
-# allowed keys (or one of their subkeys). Plain "gpg --verify" would accept a
-# signature from any key in the keyring.
+# Accept the file only if two conditions are true:
+#   1. The signature is correct.
+#   2. One of the allowed keys (or one of its subkeys) made the signature.
+# "gpg --verify" alone accepts a signature from each key in the keyring.
 verify() {
   local sig=$1 file=$2; shift 2
   local status signer fpr
   status=$(gpg --batch --status-fd 1 --verify "$sig" "$file" 2>/dev/null) \
-    || die "bad or missing signature for $file"
-  # VALIDSIG <sig-fpr> ... <primary-key-fpr>
+    || die "The signature of $file is not correct, or it is missing."
+  # Line format: VALIDSIG <signature key> ... <primary key>
   signer=$(awk '$2 == "VALIDSIG" { print $NF }' <<<"$status")
   for fpr in "$@"; do
     if [[ $signer == "$fpr" ]]; then
@@ -234,7 +241,7 @@ verify() {
       return 0
     fi
   done
-  die "$file was signed by unexpected key '${signer:-none}'"
+  die "An unknown key signed $file: '${signer:-none}'. The script stops."
 }
 
 download_sources() {
@@ -253,12 +260,12 @@ download_sources() {
   fetch -o "$p.tar.gz.sig" "$url_pcre2_dl/$p/$p.tar.gz.sig"
   if ! { fetch -o "$z.tar.gz"     "$url_zlib_dl/$z.tar.gz" &&
           fetch -o "$z.tar.gz.asc" "$url_zlib_dl/$z.tar.gz.asc"; }; then
-    warn "zlib.net download failed, trying GitHub"
+    warn "The download from zlib.net failed. The script tries GitHub."
     fetch -o "$z.tar.gz"     "$url_zlib_gh/v$ZLIB_VERSION/$z.tar.gz"
     fetch -o "$z.tar.gz.asc" "$url_zlib_gh/v$ZLIB_VERSION/$z.tar.gz.asc"
   fi
 
-  log "Verifying OpenPGP signatures"
+  log "Making sure that the OpenPGP signatures are correct"
   GNUPGHOME=$(mktemp -d)
   export GNUPGHOME
   import_keys "${keys_nginx[@]}" "${keys_openssl[@]}" "${keys_pcre2[@]}" "${keys_zlib[@]}"
@@ -267,11 +274,11 @@ download_sources() {
   verify "$p.tar.gz.sig" "$p.tar.gz" "${keys_pcre2[@]}"
   verify "$z.tar.gz.asc" "$z.tar.gz" "${keys_zlib[@]}"
 
-  log "Extracting"
+  log "Unpacking the archives"
   local archive
   for archive in "$n" "$o" "$p" "$z"; do
     tar --no-same-owner -xzf "$archive.tar.gz"
-    [[ -d $archive ]] || die "$archive.tar.gz did not contain $archive/"
+    [[ -d $archive ]] || die "$archive.tar.gz does not contain the folder $archive/."
   done
   rm -f ./*.tar.gz ./*.tar.gz.asc ./*.tar.gz.sig
 }
@@ -280,7 +287,7 @@ download_sources() {
 # Build
 # ---------------------------------------------------------------------------
 install_build_deps() {
-  log "Installing build dependencies"
+  log "Installing the packages that the build needs"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
@@ -293,12 +300,13 @@ compute_flags() {
   gcc_major=$(gcc -dumpversion | cut -d. -f1)
   if (( gcc_major >= 12 )); then fortify=3; fi
 
-  # Hardening flags as used by Debian (dpkg-buildflags hardening=+all),
-  # spelled out so the result is the same on every distro/release.
+  # Hardening flags (compiler flags that make attacks more difficult).
+  # They are the same as Debian uses (dpkg-buildflags hardening=+all).
+  # They are written out, so the result is the same on each Debian release.
   harden="-fstack-protector-strong -fstack-clash-protection"
   harden+=" -Wformat -Werror=format-security"
   case $arch in
-    aarch64|arm64) harden+=" -mbranch-protection=standard" ;;  # PAC/BTI, no-op on older CPUs
+    aarch64|arm64) harden+=" -mbranch-protection=standard" ;;  # PAC and BTI. Older CPUs ignore them.
     x86_64)        harden+=" -fcf-protection" ;;
   esac
   cppflags="-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=$fortify"
@@ -312,17 +320,18 @@ compute_flags() {
     esac
   fi
 
-  # Each library keeps its upstream optimisation level. nginx otherwise
-  # passes an *empty* CFLAGS to PCRE2 and zlib, which builds them without
-  # any optimisation (-O0).
+  # Each library keeps the optimization level that its developers use.
+  # Without these flags, nginx gives PCRE2 and zlib an empty CFLAGS.
+  # Then the compiler does not optimize them (-O0), and gzip is slow.
   cc_opt_nginx="-O2 $harden $cppflags $tune"
   cc_opt_pcre="-O2 $harden $cppflags $tune"
   cc_opt_zlib="-O3 $harden $cppflags $tune"
 
-  # OpenSSL: smaller attack surface and a faster build.
-  #   no-tests no-docs   skip test programs and man pages (big time saver on a Pi)
-  #   no-legacy          drop the legacy provider (MD4, DES, RC4, ...)
-  #   enable-ktls        allow kernel TLS (opt-in in nginx: ssl_conf_command Options KTLS)
+  # OpenSSL flags. They remove code that nginx does not use.
+  #   no-tests no-docs   Do not build test programs and manual pages (saves time on a Pi).
+  #   no-legacy          Remove old, weak algorithms (MD4, DES, RC4).
+  #   enable-ktls        Allow kernel TLS. It stays off until you set
+  #                      "ssl_conf_command Options KTLS" in nginx.
   openssl_opt="no-tests no-docs no-legacy enable-ktls $harden $cppflags $tune"
   if gcc -dM -E - </dev/null | grep -c __SIZEOF_INT128__ >/dev/null; then
     openssl_opt+=" enable-ec_nistp_64_gcc_128"
@@ -366,16 +375,16 @@ configure_nginx() {
     --with-zlib="$BUILD_DIR/zlib-$ZLIB_VERSION"
     --with-zlib-opt="$cc_opt_zlib"
 
-    # What a Nextcloud server needs
-    --with-threads                    # "aio threads" for large static files
+    # Modules (optional parts of nginx) that a Nextcloud server needs
+    --with-threads                    # "aio threads" for large files
     --with-file-aio
     --with-http_ssl_module
     --with-http_v2_module
-    --with-http_realip_module         # real client IP behind a proxy/tunnel
+    --with-http_realip_module         # real client IP behind a proxy or tunnel
     --with-http_gzip_static_module
-    --with-http_stub_status_module    # basic metrics; restrict access to it
+    --with-http_stub_status_module    # basic statistics. Limit access to it.
 
-    # Modules Nextcloud doesn't use: less code = less attack surface
+    # Modules that Nextcloud does not use. Less code gives attackers less to attack.
     --without-http_autoindex_module
     --without-http_browser_module
     --without-http_empty_gif_module
@@ -389,11 +398,11 @@ configure_nginx() {
     --without-http_userid_module
     --without-http_uwsgi_module
   )
-  # Options that only exist in newer nginx versions
+  # Flags that exist only in newer nginx versions
   local help
   help=$(./configure --help)
   if grep -q -- '--without-http_tunnel_module' <<<"$help"; then
-    args+=(--without-http_tunnel_module)   # forward-proxy CONNECT tunnels (1.31+)
+    args+=(--without-http_tunnel_module)   # CONNECT tunnels for a forward proxy (1.31 and later)
   fi
 
   if (( WITH_HTTP3 )); then args+=(--with-http_v3_module); fi
@@ -412,7 +421,7 @@ configure_nginx() {
 }
 
 build_nginx() {
-  log "Compiling with $JOBS parallel job(s) - this takes a while on a Raspberry Pi"
+  log "Compiling with $JOBS parallel jobs. On a Raspberry Pi, this step takes the most time."
   make -j"$JOBS"
   strip -s objs/nginx
   objs/nginx -V
@@ -425,19 +434,22 @@ install_nginx() {
   local src=$BUILD_DIR/nginx-$NGINX_VERSION
   cd "$src"
 
-  # Refuse to install the new binary if it can't load the existing config,
-  # e.g. because the config uses a module this build leaves out.
+  # Make sure that the new nginx accepts your current configuration.
+  # If it does not, stop before the script changes anything.
+  # Example: your configuration uses a module that this build does not include.
   if [[ -f /etc/nginx/nginx.conf ]]; then
     log "Testing the existing configuration with the new binary"
     mkdir -p /var/cache/nginx /var/log/nginx
     objs/nginx -t -c /etc/nginx/nginx.conf \
-      || die "the new nginx rejects /etc/nginx/nginx.conf - nothing was installed. \
-Add the missing module(s) via EXTRA_CONFIGURE_ARGS or fix the config, then re-run."
+      || die "The new nginx does not accept /etc/nginx/nginx.conf. \
+The script installed nothing, and your current nginx continues to run. \
+Add the missing module with EXTRA_CONFIGURE_ARGS, or change the configuration. \
+Then run the script again."
 
     local backup
     backup=/etc/nginx-backup-$(date +%Y%m%d-%H%M%S)
     cp -a /etc/nginx "$backup"
-    echo "  backed up /etc/nginx to $backup"
+    echo "  Backup of /etc/nginx: $backup"
   fi
 
   log "Installing"
@@ -447,9 +459,9 @@ Add the missing module(s) via EXTRA_CONFIGURE_ARGS or fix the config, then re-ru
   install -d -m 0750 -o www-data -g www-data \
     /var/cache/nginx /var/cache/nginx/client_temp \
     /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp
-  # "make install" never overwrites existing config files: it only refreshes
-  # the *.default copies (nginx.conf.default, mime.types.default, ...) and
-  # keeps the previous binary as /usr/sbin/nginx.old.
+  # "make install" does not overwrite your configuration files.
+  # It writes new reference copies with the name *.default (nginx.conf.default).
+  # It keeps the previous program as /usr/sbin/nginx.old.
   make install
 
   install_service
@@ -458,9 +470,9 @@ Add the missing module(s) via EXTRA_CONFIGURE_ARGS or fix the config, then re-ru
 install_service() {
   local unit=/etc/systemd/system/nginx.service
   if [[ -e $unit ]]; then
-    echo "  $unit exists - left untouched"
+    echo "  $unit exists. The script did not change it."
   else
-    echo "  writing $unit"
+    echo "  Writing $unit"
     cat >"$unit" <<'EOF'
 [Unit]
 Description=nginx - high performance web server
@@ -481,8 +493,9 @@ KillMode=mixed
 Restart=on-failure
 RestartSec=5s
 
-# Sandboxing. nginx only needs to write to /var/log/nginx, /var/cache/nginx
-# and /run. Do NOT add MemoryDenyWriteExecute=yes: PCRE2 JIT needs it off.
+# Sandboxing (limits on what nginx can do on the system).
+# nginx writes only to /var/log/nginx, /var/cache/nginx and /run.
+# Do not add MemoryDenyWriteExecute=yes. PCRE2 JIT stops working with it.
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=full
@@ -505,7 +518,7 @@ SystemCallArchitectures=native
 WantedBy=multi-user.target
 EOF
     if [[ -e /lib/systemd/system/nginx.service ]]; then
-      echo "  note: it overrides the older /lib/systemd/system/nginx.service"
+      echo "  This file takes priority over /lib/systemd/system/nginx.service."
     fi
   fi
 
@@ -515,7 +528,7 @@ EOF
       log "Restarting nginx"
       systemctl restart nginx
     else
-      echo "  Start nginx with:  sudo systemctl enable --now nginx"
+      echo "  To start nginx, run: sudo systemctl enable --now nginx"
     fi
   fi
 }
@@ -537,21 +550,22 @@ main() {
   if [[ ${DEBUG:-0} == 1 ]]; then set -x; fi
 
   if (( check_only )); then
-    for c in curl jq; do command -v "$c" >/dev/null || die "--check needs $c"; done
+    for c in curl jq; do command -v "$c" >/dev/null || die "--check needs $c. Install it with: sudo apt install $c"; done
     check_versions
     exit 0
   fi
 
-  [[ $EUID -eq 0 ]] || die "run as root or with sudo"
+  [[ $EUID -eq 0 ]] || die "Run the script as root or with sudo."
 
-  # A distro nginx package would fight over /usr/sbin/nginx and /etc/nginx.
+  # An nginx package from apt uses the same files: /usr/sbin/nginx and /etc/nginx.
+  # The two installations overwrite each other, so stop.
   if { dpkg-query -W -f='${Status}\n' nginx nginx-common nginx-core nginx-full \
          nginx-light nginx-extras 2>/dev/null || true; } | grep -c '^install ok installed' >/dev/null; then
-    die "an nginx package from apt is installed; remove it first (sudo apt remove nginx nginx-common)"
+    die "An nginx package from apt is installed. Remove it first: sudo apt remove nginx nginx-common"
   fi
 
   BUILD_DIR=$(realpath -m "$BUILD_DIR")
-  [[ $(dirname "$BUILD_DIR") != / ]] || die "BUILD_DIR=$BUILD_DIR is too close to / (it gets deleted)"
+  [[ $(dirname "$BUILD_DIR") != / ]] || die "BUILD_DIR=$BUILD_DIR is directly below /. The script deletes this folder. Use a subfolder."
   trap 'rm -rf "${GNUPGHOME:-/nonexistent}"' EXIT
 
   install_build_deps
@@ -562,8 +576,8 @@ main() {
   build_nginx
 
   if (( build_only )); then
-    log "Build finished: $BUILD_DIR/nginx-$NGINX_VERSION/objs/nginx (not installed)"
-    echo "  Run the script without --build-only to build and install."
+    log "Build complete in $(( SECONDS / 60 )) minutes: $BUILD_DIR/nginx-$NGINX_VERSION/objs/nginx"
+    echo "  The script did not install it. To build and install, run the script without --build-only."
     exit 0
   fi
 
@@ -571,7 +585,7 @@ main() {
   if (( ! KEEP_BUILD )); then
     rm -rf "$BUILD_DIR"
   fi
-  log "Done: $(/usr/sbin/nginx -v 2>&1)"
+  log "Installed nginx $NGINX_VERSION with OpenSSL $OPENSSL_VERSION. Total time: $(( SECONDS / 60 )) minutes."
 }
 
 main "$@"
