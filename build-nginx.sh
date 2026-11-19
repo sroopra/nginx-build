@@ -403,7 +403,8 @@ configure_nginx() {
   local remove=(autoindex browser empty_gif geo grpc memcached mirror scgi
                 split_clients ssi userid uwsgi tunnel)
   local help mod
-  help=$(./configure --help)
+  # "configure --help" ends with exit code 1, so ignore the exit code.
+  help=$(./configure --help || true)
   for mod in "${remove[@]}"; do
     if [[ " $KEEP_MODULES " == *" $mod "* ]]; then continue; fi
     # Older nginx versions do not have all of these flags.
