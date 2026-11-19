@@ -495,7 +495,9 @@ ExecStartPre=/usr/sbin/nginx -t -q
 ExecStart=/usr/sbin/nginx
 ExecReload=/usr/sbin/nginx -t -q
 ExecReload=/bin/kill -s HUP $MAINPID
-ExecStop=/bin/kill -s QUIT $MAINPID
+# On stop and restart, send QUIT to the main process (a graceful stop: open
+# connections can finish). After 10 seconds, systemd stops all processes.
+KillSignal=SIGQUIT
 TimeoutStopSec=10
 KillMode=mixed
 Restart=on-failure
