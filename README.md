@@ -81,8 +81,12 @@ Your current nginx continues to serve Nextcloud during the build. After the buil
 
 1. It makes sure that the new nginx accepts your configuration. If not, it stops and changes nothing.
 2. It copies `/etc/nginx` to `/etc/nginx-backup-<date>`.
-3. It installs the new nginx. Your configuration files stay as they are.
-4. It restarts nginx.
+3. It installs the new nginx. Your configuration files stay as they are. The old program stays as `/usr/sbin/nginx.old`.
+4. It restarts nginx with systemd, and makes sure that nginx runs again.
+
+Nextcloud is offline only during step 4. Usually this takes 1 or 2 seconds. If a download or an upload is in progress, nginx waits for it, but for 10 seconds at most.
+
+If you started nginx with `sudo nginx` and not with systemd, the script stops that nginx. Then it starts nginx with systemd, and nginx also starts after each reboot.
 
 ## Get an email when an update is available
 

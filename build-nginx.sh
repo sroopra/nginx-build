@@ -529,15 +529,59 @@ EOF
     fi
   fi
 
-  if command -v systemctl >/dev/null && [[ -d /run/systemd/system ]]; then
-    systemctl daemon-reload
-    if systemctl is-active --quiet nginx; then
-      log "Restarting nginx"
-      systemctl restart nginx
-    else
-      echo "  To start nginx, run: sudo systemctl enable --now nginx"
-    fi
+  # The process ID of an nginx that runs now. Empty if nginx does not run.
+  local pid=""
+  if [[ -s /run/nginx.pid ]]; then
+    pid=$(cat /run/nginx.pid)
+    kill -0 "$pid" 2>/dev/null || pid=""
   fi
+
+  if ! command -v systemctl >/dev/null || [[ ! -d /run/systemd/system ]]; then
+    if [[ -n $pid ]]; then
+      echo "  nginx runs without systemd. It uses the old program until you restart it."
+      echo "  To restart it, run: sudo kill -QUIT $pid && sudo /usr/sbin/nginx"
+    fi
+    return 0
+  fi
+
+  systemctl daemon-reload
+  if systemctl is-active --quiet nginx; then
+    log "Restarting nginx"
+    systemctl restart nginx
+  elif [[ -n $pid ]]; then
+    # Older versions of the README started nginx with "sudo nginx", not with
+    # systemd. Stop that nginx, then start the new nginx with systemd.
+    log "Stopping the nginx that systemd did not start, and starting it with systemd"
+    stop_pid "$pid"
+    systemctl enable --now nginx
+  else
+    echo "  To start nginx, run: sudo systemctl enable --now nginx"
+    return 0
+  fi
+
+  if systemctl is-active --quiet nginx; then
+    echo "  nginx runs."
+  else
+    die "nginx did not start. To see the cause, run: sudo journalctl -u nginx -n 30 \
+The old program is /usr/sbin/nginx.old. The README section \"The service file\" explains how to go back."
+  fi
+}
+
+# Stop an nginx master process. First wait up to 10 seconds for open
+# connections to finish (QUIT). Then stop it at once (TERM).
+stop_pid() {
+  local pid=$1 _
+  kill -QUIT "$pid" 2>/dev/null || return 0
+  for _ in {1..20}; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  kill -TERM "$pid" 2>/dev/null || return 0
+  for _ in {1..10}; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  die "nginx (process $pid) did not stop. Stop it, then run: sudo systemctl enable --now nginx"
 }
 
 # ---------------------------------------------------------------------------
