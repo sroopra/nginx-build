@@ -26,14 +26,17 @@ version_openssl=$(curl -sL ${source_openssl} | grep -Po 'openssl\-[0-9]+\.[0-9]+
 version_nginx=$(curl -sL ${source_nginx} | grep -Eo 'nginx\-[0-9.]+[13579]\.[0-9]+' | sort -V | tail -n 1)
 
 # Set OpenPGP keys used to sign downloads
-opgp_pcre=45F68D54BBE23FB3039B46E59766E084FB0F43D8
+opgp_pcre=A95536204A3BB489715231282A98E77EB6F24CA8 #Nicholas Wilson (signs PCRE2 10.45 onwards)
 opgp_zlib=5ED46A6721D365587791E2AA783FCD8E58BCAFBA
 opgp_openssl_1=8657ABB260F056B1E5190839D9C4D26D0E604491 #Matt Caswell
 opgp_openssl_2=B7C1C14360F353A36862E4D5231C84CDDCC69C45 #Paul Dale
 opgp_openssl_3=7953AC1FBC3DC8B3B292393ED5E9E43F7DF9EE8C #Richaard Levitte
 opgp_openssl_4=A21FAB74B0088AA361152586B8EF1A6BA9DA2D5C #Tomas Mrax
 opgp_openssl_5=EFC0A467D613CB83C7ED6D30D894E2CE8B3D79F5 #OpenSSL OMC
-opgp_nginx=43387825ddb1bb97ec36ba5d007c8d7c15d87369
+opgp_openssl_6=B146647E45A7B33947AB226B2A2C87D161692D40 #OpenSSL (current release signing key)
+opgp_nginx_1=43387825DDB1BB97EC36BA5D007C8D7C15D87369 #Roman Arutyunyan
+opgp_nginx_2=D6786CE303D9A9022998DC6CC8464D549AF75C0A #Sergey Kandaurov
+opgp_nginx_3=13C82A63B603576156E30A4EA0EA981B66B0D967 #Konstantin Pavlov
 
 # Set where OpenSSL and NGINX will be built
 bpath=$(pwd)/build
@@ -53,6 +56,7 @@ apt-get -y install \
   build-essential \
   curl \
   dirmngr \
+  gnupg \
   libssl-dev
 
 # Download the source files
@@ -73,7 +77,7 @@ curl -L "${source_nginx}${version_nginx}.tar.gz.asc" -o "${bpath}/nginx.tar.gz.a
 cd "$bpath"
 GNUPGHOME="$(mktemp -d)"
 export GNUPGHOME
-gpg --keyserver keyserver.ubuntu.com --recv-keys "$opgp_pcre" "$opgp_zlib" "$opgp_openssl_1" "$opgp_openssl_2" "$opgp_openssl_3" "$opgp_openssl_4" "$opgp_openssl_5" "$opgp_nginx"
+gpg --keyserver keyserver.ubuntu.com --recv-keys "$opgp_pcre" "$opgp_zlib" "$opgp_openssl_1" "$opgp_openssl_2" "$opgp_openssl_3" "$opgp_openssl_4" "$opgp_openssl_5" "$opgp_openssl_6" "$opgp_nginx_1" "$opgp_nginx_2" "$opgp_nginx_3"
 gpg --batch --verify pcre.tar.gz.sig pcre.tar.gz
 gpg --batch --verify zlib.tar.gz.asc zlib.tar.gz
 gpg --batch --verify openssl.tar.gz.asc openssl.tar.gz
