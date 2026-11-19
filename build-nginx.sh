@@ -129,7 +129,7 @@ cd "$bpath/$version_nginx"
   --with-ld-opt="-Wl,-Bsymbolic-functions -Wl,-z,relro" \
   --with-pcre="$bpath/$version_pcre" \
   --with-zlib="$bpath/$version_zlib" \
-  --with-openssl-opt="no-weak-ssl-ciphers no-ssl3 no-shared $ecflag -DOPENSSL_NO_HEARTBEATS -fstack-protector-strong" \
+  --with-openssl-opt="no-weak-ssl-ciphers no-shared $ecflag -DOPENSSL_NO_HEARTBEATS -fstack-protector-strong" \
   --with-openssl="$bpath/$version_openssl" \
   --sbin-path=/usr/sbin/nginx \
   --modules-path=/usr/lib/nginx/modules \
